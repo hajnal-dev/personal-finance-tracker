@@ -176,6 +176,7 @@ def frissites():
     try:
         uj_osszeg = float(osszeg_entry.get())
         uj_tranzakcio = Tranzakcio(kijelolt_tranzakcio.rekord_id, kijelolt_tranzakcio.datum, uj_osszeg, uj_kategoria, uj_tipus)
+        #validáció a property-n keresztül
     except ValueError as hiba:
         print(hiba)
         return
