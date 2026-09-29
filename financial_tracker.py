@@ -36,24 +36,22 @@ def mentes():
     kategoria = kategoria_entry.get().strip() or "Egyéb"
     tipus = tipus_combo.get()
     datum = datetime.now().strftime("%Y-%m-%d")
-    
-    try:
-        uj_tranzakcio = Tranzakcio(None, datum, osszeg, kategoria, tipus) #validáció a property-n keresztül
-    except ValueError as hiba:
-        print(hiba)
-        return
 
     with db_kapcsolat() as conn:
         cursor = conn.cursor()
+        kategoria_id = kategoria_id_lekeres(conn, kategoria)
+        try:
+            uj_tranzakcio = Tranzakcio(None, datum, osszeg, kategoria, tipus, kategoria_id) #validáció a property-n keresztül
+        except ValueError as hiba:
+            print(hiba)
+            return
         cursor.execute("""
         INSERT INTO tranzakciok
-        (osszeg, datum, kategoria, tipus)
+        (datum, osszeg, tipus, kategoria_id)
         VALUES (?, ?, ?, ?)
-        """, (osszeg, datum, kategoria, tipus))
+        """, (datum, osszeg, tipus, kategoria_id))
 
-    #nincs szükség conn.commit()-ra és conn.close()-ra
-    #context manager automatikusan elintézi kilépéskor
-
+    
     print("Sikeres mentés!")
     osszeg_entry.delete(0, tk.END)
     kategoria_entry.delete(0, tk.END)
@@ -67,12 +65,20 @@ listbox_objektum_terkep = {}
 
 class Tranzakcio:
     """Egy pénzügyi tranzakciót (bevételt vagy kiadást) reprezentál."""
-    def __init__(self, rekord_id, datum, osszeg, kategoria, tipus): 
+    def __init__(self, rekord_id, datum, osszeg, kategoria_nev, tipus, kategoria_id): 
         self.rekord_id = rekord_id
         self.datum = datum
         self.osszeg = osszeg
-        self.kategoria = kategoria
+        self.kategoria_nev = kategoria_nev
         self.tipus = tipus
+        self.kategoria_id = kategoria_id
+
+    def __str__(self):
+        if self.tipus == "Bevétel":
+            jel = "+"
+        else:
+            jel = "-"
+        return f"{self.rekord_id} {self.datum} {jel}{self.osszeg} {self.kategoria_nev} {self.tipus}"
 
     @property
     def osszeg(self):
@@ -85,20 +91,22 @@ class Tranzakcio:
         else:
             self._osszeg = uj_ertek
             
-
-    def __str__(self):
-        if self.tipus == "Bevétel":
-            jel = "+"
-        else:
-            jel = "-"
-
-        return f"{self.rekord_id} {self.datum} {self.osszeg} ({self.kategoria}) ({self.tipus})" 
-
-
     def __repr__(self):
-        return f"Tranzakcio(rekord_id={self.rekord_id}, osszeg={self.osszeg}, kategoria='{self.kategoria}')"
+        return f"Tranzakcio(rekord_id={self.rekord_id}, osszeg={self.osszeg}, kategoria='{self.kategoria_id}')"
 
 
+def kategoria_id_lekeres(conn, nev):
+    """Visszaadja a megadott nevű kategória id-ját; ha még nem létezik, létrehozza."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM kategoriak WHERE nev = ?", (nev,))
+    talalat = cursor.fetchone()
+
+    if talalat:
+        return talalat[0]
+    else:
+        cursor.execute("INSERT INTO kategoriak(nev) VALUES (?)", (nev,))
+        return cursor.lastrowid
+    
 listbox_objektum_terkep = {}
 
 
@@ -109,12 +117,15 @@ def listazas():
 
     with db_kapcsolat() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM tranzakciok")
+        cursor.execute("""
+            SELECT t.rekord_id, t.datum, t.osszeg, k.nev, t.tipus, t.kategoria_id
+            FROM tranzakciok t
+            LEFT JOIN  kategoriak k ON t.kategoria_id = k.id""")
         adatok = cursor.fetchall()
 
-    for index, (rekord_id, datum, osszeg, kategoria, tipus) in enumerate(adatok):
+    for index, (rekord_id, datum, osszeg, kategoria_nev, tipus, kategoria_id) in enumerate(adatok):
 
-        tranzakcio = Tranzakcio(rekord_id, datum, osszeg, kategoria, tipus)
+        tranzakcio = Tranzakcio(rekord_id, datum, osszeg, kategoria_nev, tipus, kategoria_id)
         listbox_objektum_terkep[index] = tranzakcio
         tranzakcio_lista.insert(tk.END, tranzakcio)
 
@@ -155,7 +166,7 @@ def betoltes():
         osszeg_entry.delete(0, tk.END)
         kategoria_entry.delete(0, tk.END)
         osszeg_entry.insert(0, tranzakcio.osszeg)
-        kategoria_entry.insert(0, tranzakcio.kategoria)
+        kategoria_entry.insert(0, tranzakcio.kategoria_nev)
         tipus_combo.set(tranzakcio.tipus)
 
         listazas()
@@ -169,34 +180,35 @@ def frissites():
     if kijelolt_tranzakcio is None:
         return
 
-    uj_osszeg = osszeg_entry.get()
     uj_kategoria = kategoria_entry.get()
     uj_tipus = tipus_combo.get()
 
-    try:
-        uj_osszeg = float(osszeg_entry.get())
-        uj_tranzakcio = Tranzakcio(kijelolt_tranzakcio.rekord_id, kijelolt_tranzakcio.datum, uj_osszeg, uj_kategoria, uj_tipus)
-        #validáció a property-n keresztül
-    except ValueError as hiba:
-        print(hiba)
-        return
 
     with db_kapcsolat() as conn:
         cursor = conn.cursor()
+        kategoria_id = kategoria_id_lekeres(conn, uj_kategoria)
+        try:
+            uj_osszeg = float(osszeg_entry.get())
+            uj_tranzakcio = Tranzakcio(kijelolt_tranzakcio.rekord_id, kijelolt_tranzakcio.datum, uj_osszeg, uj_kategoria, uj_tipus, kategoria_id)
+            #validáció a property-n keresztül
+        except ValueError as hiba:
+            print(hiba)
+            return
         cursor.execute("""
         UPDATE tranzakciok
         SET osszeg = ?,
-            kategoria = ?,
-            tipus = ?
+            tipus = ?,
+            kategoria_id = ?
             WHERE rekord_id = ?
         """,
         (
             uj_osszeg,
-            uj_kategoria,
             uj_tipus,
+            kategoria_id,
             kijelolt_tranzakcio.rekord_id
             )
         )
+
 
     listazas()
     egyenleg()
@@ -233,26 +245,15 @@ def kategoriak_osszesitese():
     with db_kapcsolat() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT osszeg, kategoria, tipus
-            FROM tranzakciok
+            SELECT k.nev, SUM(CASE WHEN t.tipus = 'Kiadás' THEN -t.osszeg ELSE t.osszeg END)
+            FROM tranzakciok t
+            JOIN  kategoriak k ON t.kategoria_id = k.id
+            GROUP BY k.nev
             """)
         adatok = cursor.fetchall()
 
-    kategoriak = {}
-
-    for osszeg, kategoria, tipus in adatok:
-
-        if tipus == "Kiadás":
-            osszeg = -osszeg
-
-        if kategoria in kategoriak:
-            kategoriak[kategoria] += osszeg
-        else:
-            kategoriak[kategoria] = osszeg 
-
-
-    for kategoria, osszeg in kategoriak.items():
-        print(f"{kategoria}: {osszeg:.0f} Ft")
+    for kategoria_nev, osszeg in adatok:
+        print(f"{kategoria_nev}: {osszeg:.0f} Ft")
 
 
 # - - - 3. Ablak - - -
@@ -263,15 +264,30 @@ root.geometry("400x510")
 
 # - - - 4. GUI elemek - - -
 with db_kapcsolat() as conn:
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS kategoriak(
+        id INTEGER PRIMARY KEY,
+        nev TEXT NOT NULL UNIQUE
+)
+""")
+
     conn.execute("""
     CREATE TABLE IF NOT EXISTS tranzakciok(
         rekord_id INTEGER PRIMARY KEY,
         datum TEXT,
         osszeg REAL,
-        kategoria TEXT,
-        tipus TEXT
-    )
-    """)
+        tipus TEXT,
+        kategoria_id INTEGER,
+        FOREIGN KEY (kategoria_id) REFERENCES kategoriak(id)
+)
+""")
+
+with db_kapcsolat() as conn:
+    kezdo_kat = conn.execute("""
+    INSERT OR IGNORE INTO kategoriak(nev) VALUES ('Étel'), ('Lakás'), ('Szórakozás')
+""")
+
 
 osszeg_label = tk.Label(root, text="Összeg:")
 osszeg_label.pack()
