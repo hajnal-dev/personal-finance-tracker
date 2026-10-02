@@ -60,8 +60,12 @@ class Tranzakcio(Base):
         return f"Tranzakcio(rekord_id={self.rekord_id}, osszeg={self.osszeg}, kategoria_id={self.kategoria_id})"
 
 
+# - - - Engine - - -
+# modul szinten: importáláskor IS létrejön, így a financial_tracker.py el tudja érni
+engine = create_engine("sqlite:///penzugy.db", echo=True)
+
+
 # - - - Próbafuttatás - - -
 # csak akkor fut, ha EZT a fájlt indítod közvetlenül, importáláskor nem
 if __name__ == "__main__":
-    engine = create_engine("sqlite:///penzugy.db", echo=True)  # echo=True → kiírja a generált SQL-t
     Base.metadata.create_all(engine)
