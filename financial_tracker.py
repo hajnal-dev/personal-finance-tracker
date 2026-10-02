@@ -4,6 +4,9 @@ import sqlite3
 from tkinter import ttk
 from datetime import datetime
 from contextlib import contextmanager
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+from modellek import engine, Tranzakcio
 
 # - - - 1. Adatbázis inicializálása induláskor - - -
 #azért jobb ilyenkor mert egyszer jön létre az indításkor
@@ -21,7 +24,7 @@ def db_kapcsolat():
         conn.close()
 
 
-# - - - 2. függvények - - -
+# - - - Függvények - - -
 
 kijelolt_tranzakcio = None
 
@@ -61,39 +64,6 @@ def mentes():
 
 listbox_objektum_terkep = {} 
 
-# - - - Osztály - - -
-
-class Tranzakcio:
-    """Egy pénzügyi tranzakciót (bevételt vagy kiadást) reprezentál."""
-    def __init__(self, rekord_id, datum, osszeg, kategoria_nev, tipus, kategoria_id): 
-        self.rekord_id = rekord_id
-        self.datum = datum
-        self.osszeg = osszeg
-        self.kategoria_nev = kategoria_nev
-        self.tipus = tipus
-        self.kategoria_id = kategoria_id
-
-    def __str__(self):
-        if self.tipus == "Bevétel":
-            jel = "+"
-        else:
-            jel = "-"
-        return f"{self.rekord_id} {self.datum} {jel}{self.osszeg} {self.kategoria_nev} {self.tipus}"
-
-    @property
-    def osszeg(self):
-        return self._osszeg
-
-    @osszeg.setter
-    def osszeg(self, uj_ertek):
-        if uj_ertek < 0:
-            raise ValueError("Negatív összeg nem adható meg!")
-        else:
-            self._osszeg = uj_ertek
-            
-    def __repr__(self):
-        return f"Tranzakcio(rekord_id={self.rekord_id}, osszeg={self.osszeg}, kategoria='{self.kategoria_id}')"
-
 
 def kategoria_id_lekeres(conn, nev):
     """Visszaadja a megadott nevű kategória id-ját; ha még nem létezik, létrehozza."""
@@ -106,28 +76,24 @@ def kategoria_id_lekeres(conn, nev):
     else:
         cursor.execute("INSERT INTO kategoriak(nev) VALUES (?)", (nev,))
         return cursor.lastrowid
-    
-listbox_objektum_terkep = {}
 
 
 def listazas():
-    """Betölti az összes tranzakciót az adatbázisból, és megjeleníti a Listboxban."""
+    """Betölti az összes tranzakciót az adatbázisból (SQLAlchemy-vel), és megjeleníti a Listboxban."""
     tranzakcio_lista.delete(0, tk.END)
     listbox_objektum_terkep.clear()
 
-    with db_kapcsolat() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT t.rekord_id, t.datum, t.osszeg, k.nev, t.tipus, t.kategoria_id
-            FROM tranzakciok t
-            LEFT JOIN  kategoriak k ON t.kategoria_id = k.id""")
-        adatok = cursor.fetchall()
+    with Session(engine) as session:
+        # a listazas()-ban a lekérdezés:
+        tranzakciok = session.scalars(
+            select(Tranzakcio).options(selectinload(Tranzakcio.kategoria))   # melyik kapcsolatot töltse be előre?
+        ).all()
 
-    for index, (rekord_id, datum, osszeg, kategoria_nev, tipus, kategoria_id) in enumerate(adatok):
-
-        tranzakcio = Tranzakcio(rekord_id, datum, osszeg, kategoria_nev, tipus, kategoria_id)
-        listbox_objektum_terkep[index] = tranzakcio
-        tranzakcio_lista.insert(tk.END, tranzakcio)
+        # a Listbox-feltöltés a with-en BELÜL marad: a str() itt hívja a __str__-t,
+        # ami a self.kategoria.nev miatt még nyitott sessiont igényel
+        for index, tranzakcio in enumerate(tranzakciok):
+            listbox_objektum_terkep[index] = tranzakcio  #objektum mentése a térképbe az indexhez
+            tranzakcio_lista.insert(tk.END, str(tranzakcio))
 
     egyenleg()
 
@@ -166,7 +132,7 @@ def betoltes():
         osszeg_entry.delete(0, tk.END)
         kategoria_entry.delete(0, tk.END)
         osszeg_entry.insert(0, tranzakcio.osszeg)
-        kategoria_entry.insert(0, tranzakcio.kategoria_nev)
+        kategoria_entry.insert(0, tranzakcio.kategoria.nev)
         tipus_combo.set(tranzakcio.tipus)
 
         listazas()
