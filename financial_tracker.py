@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from modellek import engine, Tranzakcio, Kategoria
+import adatreteg
 
 # - - - 1. Adatbázis inicializálása induláskor - - -
 #azért jobb ilyenkor mert egyszer jön létre az indításkor
@@ -27,9 +28,23 @@ def db_kapcsolat():
 # - - - Függvények - - -
 
 kijelolt_tranzakcio = None
+listbox_objektum_terkep = {}
+
+
+def listazas():
+    """Megjeleníti az összes tranzakciót a Listboxban (az adatot az adatrétegtől kéri)."""
+    tranzakcio_lista.delete(0, tk.END)
+    listbox_objektum_terkep.clear()
+
+    for index, tranzakcio in enumerate(adatreteg.osszes_tranzakcio()):
+        listbox_objektum_terkep[index] = tranzakcio
+        tranzakcio_lista.insert(tk.END, str(tranzakcio))
+
+    egyenleg()
+
 
 def mentes():
-    """Ellenőrzi és elmenti az új tranzakciót az adatbázisba (SQLAlchemy-vel), majd frissíti a listát és az egyenleget."""
+    """Beolvassa a mezőket, és az adatréteggel elmenteti az új tranzakciót."""
     try:
         osszeg = float(osszeg_entry.get())
     except ValueError:
@@ -40,66 +55,17 @@ def mentes():
     tipus = tipus_combo.get()
     datum = datetime.now().strftime("%Y-%m-%d")
 
-    with Session(engine) as session:
-        kategoria = kategoria_keres_vagy_letrehoz(session, kategoria_nev)
-
-        try:
-            # név szerinti paraméterek; a @validates itt, létrehozáskor ellenőrzi az összeget
-            uj_tranzakcio = Tranzakcio(
-                datum=datum,
-                osszeg=osszeg,
-                tipus=tipus,
-                kategoria=kategoria,      # OBJEKTUM, nem id — az SQLAlchemy kitölti a kategoria_id-t
-            )
-        except ValueError as hiba:
-            print(hiba)
-            return                  # commit nélkül lépünk ki → semmi nem mentődik, az új kategória sem
-
-        session.add(uj_tranzakcio)  # felvétel a nyilvántartásba
-        session.commit()               # végleges mentés
+    try:
+        adatreteg.uj_tranzakcio(datum, osszeg, tipus, kategoria_nev)
+    except ValueError as hiba:          # az adatréteg jelzi a hibát, a felület dönti el, mit kezd vele
+        print(hiba)
+        return
 
     print("Sikeres mentés!")
     osszeg_entry.delete(0, tk.END)
     kategoria_entry.delete(0, tk.END)
 
-    listazas()
-    egyenleg()
-
-listbox_objektum_terkep = {}
-
-
-def kategoria_keres_vagy_letrehoz(session, nev):
-    """Visszaadja a megadott nevű Kategoria objektumot; ha még nem létezik, létrehozza (commit nélkül)."""
-    # SELECT ... FROM kategoriak WHERE nev = ? — csak most osztállyal és attribútummal
-    kategoria = session.scalars(
-        select(Kategoria).where(Kategoria.nev == nev)
-    ).first()                       # első találat, vagy None, ha nincs ilyen
-
-    if kategoria is None:
-        kategoria = Kategoria(nev=nev)    # név szerinti paraméter!
-        session.add(kategoria)            # felvétel a session nyilvántartásába (még nem mentés)
-
-    return kategoria
-
-
-def listazas():
-    """Betölti az összes tranzakciót az adatbázisból (SQLAlchemy-vel), és megjeleníti a Listboxban."""
-    tranzakcio_lista.delete(0, tk.END)
-    listbox_objektum_terkep.clear()
-
-    with Session(engine) as session:
-        # a listazas()-ban a lekérdezés:
-        tranzakciok = session.scalars(
-            select(Tranzakcio).options(selectinload(Tranzakcio.kategoria))   # melyik kapcsolatot töltse be előre?
-        ).all()
-
-        # a Listbox-feltöltés a with-en BELÜL marad: a str() itt hívja a __str__-t,
-        # ami a self.kategoria.nev miatt még nyitott sessiont igényel
-        for index, tranzakcio in enumerate(tranzakciok):
-            listbox_objektum_terkep[index] = tranzakcio  #objektum mentése a térképbe az indexhez
-            tranzakcio_lista.insert(tk.END, str(tranzakcio))
-
-    egyenleg()
+    listazas()                          # az egyenleg()-et a listazas() már meghívja → itt nem kell külön
 
 
 def torles():
@@ -169,7 +135,7 @@ def frissites():
             return                      # commit nélkül kilépünk → semmi nem változik
 
         tranzakcio.tipus = uj_tipus
-        tranzakcio.kategoria = kategoria_keres_vagy_letrehoz(session, uj_kategoria_nev)
+        tranzakcio.kategoria = adatreteg.kategoria_keres_vagy_letrehoz(session, uj_kategoria_nev)
 
         # 3. végleges mentés — add() nem kell, a session már követi az objektumot
         session.commit()
