@@ -1,34 +1,14 @@
-# - - - 0. Importálandók - - -
+# - - - Importálandók - - -
 import tkinter as tk
-import sqlite3
 from tkinter import ttk
 from datetime import datetime
-from contextlib import contextmanager
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
-from modellek import engine, Tranzakcio, Kategoria
 import adatreteg
 
-# - - - 1. Adatbázis inicializálása induláskor - - -
-#azért jobb ilyenkor mert egyszer jön létre az indításkor
-#nem fut le minden gombnyomáskor
-#különválasztja az alkalmazás indulási lépéseit a felhasználói műveletektől
-
-@contextmanager
-def db_kapcsolat():
-    """Megnyitja és a végén lezárja az adatbázis-kapcsolatot; hiba esetén is garantáltan bezárja."""
-    conn = sqlite3.connect("penzugy.db")
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
-
-
-# - - - Függvények - - -
 
 kijelolt_tranzakcio = None
 listbox_objektum_terkep = {}
+
+# - - - Függvények - - -
 
 
 def listazas():
@@ -148,38 +128,16 @@ def kategoriak_osszesitese():
         print(f"{kategoria_nev}: {osszeg:.0f} Ft")
 
 
-# - - - 3. Ablak - - -
+# - - - Ablak - - -
 
 root = tk.Tk()
 root.title("Pénzügyi Nyilvántartó")
 root.geometry("400x510")
 
-# - - - 4. GUI elemek - - -
-with db_kapcsolat() as conn:
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS kategoriak(
-        id INTEGER PRIMARY KEY,
-        nev TEXT NOT NULL UNIQUE
-)
-""")
 
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS tranzakciok(
-        rekord_id INTEGER PRIMARY KEY,
-        datum TEXT,
-        osszeg REAL,
-        tipus TEXT,
-        kategoria_id INTEGER,
-        FOREIGN KEY (kategoria_id) REFERENCES kategoriak(id)
-)
-""")
+# - - - Adatbázis előkészítése, GUI elemek - - -
 
-with db_kapcsolat() as conn:
-    kezdo_kat = conn.execute("""
-    INSERT OR IGNORE INTO kategoriak(nev) VALUES ('Étel'), ('Lakás'), ('Szórakozás')
-""")
-
+adatreteg.adatbazis_inicializalas() #hiányzó táblát + kezdő kategóriák
 
 osszeg_label = tk.Label(root, text="Összeg:")
 osszeg_label.pack()
@@ -264,7 +222,7 @@ kategoriak_button = tk.Button(
 
 kategoriak_button.pack()
 
-# - - - 5. Main loop - - -
+# - - - Main loop - - -
 
 listazas()
 root.mainloop()

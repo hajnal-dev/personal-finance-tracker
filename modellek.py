@@ -1,5 +1,5 @@
 # - - - Importálandók - - -
-from sqlalchemy import ForeignKey, create_engine
+from sqlalchemy import ForeignKey, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, validates
 
 
@@ -64,6 +64,14 @@ class Tranzakcio(Base):
 # modul szinten: importáláskor IS létrejön, így a financial_tracker.py el tudja érni
 engine = create_engine("sqlite:///penzugy.db", echo=True)
 
+# minden új adatbázis-kapcsolat megnyitásakor lefut: SQLite-ban a PRAGMA kapcsolatonként érvényes,
+# ezért itt kapcsoljuk be — így az SQLAlchemy MINDEN kapcsolatán ellenőrzi az idegen kulcsokat
+@event.listens_for(engine, "connect")
+def idegen_kulcsok_bekapcsolasa(dbapi_kapcsolat, kapcsolat_rekord):
+    """Bekapcsolja az idegen kulcsok ellenőrzését minden új SQLite-kapcsolaton."""
+    cursor = dbapi_kapcsolat.cursor()
+    cursor.execute("PRAGMA foreign_keys = ON")
+    cursor.close()
 
 # - - - Próbafuttatás - - -
 # csak akkor fut, ha EZT a fájlt indítod közvetlenül, importáláskor nem

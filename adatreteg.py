@@ -1,7 +1,10 @@
 """Adatréteg: minden adatbázis-művelet itt van. Nem tud a felületről — se widget, se print."""
 from sqlalchemy import select, func, case
 from sqlalchemy.orm import Session, selectinload
-from modellek import engine, Tranzakcio, Kategoria
+from modellek import engine, Base, Tranzakcio, Kategoria
+
+# - - - Konstansok - - -
+KEZDO_KATEGORIAK = ["Étel", "Lakás", "Szórakozás"]
 
 
 def kategoria_keres_vagy_letrehoz(session, nev):
@@ -87,3 +90,13 @@ def kategoriankenti_egyenleg():
             .join(Tranzakcio.kategoria)       # JOIN kategoriak ON ... (a kapcsolatból tudja)
             .group_by(Kategoria.nev)
         ).all()
+
+
+def adatbazis_inicializalas():
+    """Létrehozza a hiányzó táblákat, és felveszi a kezdő kategóriákat, ha még nincsenek meg."""
+    Base.metadata.create_all(engine)                       # CREATE TABLE ... a modellekből, csak ami hiányzik
+
+    with Session(engine) as session:
+        for nev in KEZDO_KATEGORIAK:
+            kategoria_keres_vagy_letrehoz(session, nev)
+        session.commit()
