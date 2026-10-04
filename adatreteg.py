@@ -1,5 +1,5 @@
 """Adatréteg: minden adatbázis-művelet itt van. Nem tud a felületről — se widget, se print."""
-from sqlalchemy import select
+from sqlalchemy import select, func, case
 from sqlalchemy.orm import Session, selectinload
 from modellek import engine, Tranzakcio, Kategoria
 
@@ -56,3 +56,34 @@ def tranzakcio_torles(rekord_id):
 
         session.delete(tranzakcio)         # megjelölés törlésre (még nem végleges)
         session.commit()                   # végleges törlés
+
+
+def bevetel_kiadas_osszesen():
+    """Visszaadja az összes bevétel és kiadás összegét, egy (bevetel, kiadas) párként."""
+    with Session(engine) as session:
+        # SELECT tipus, SUM(osszeg) FROM tranzakciok GROUP BY tipus
+        sorok = session.execute(
+            select(Tranzakcio.tipus, func.sum(Tranzakcio.osszeg))
+            .group_by(Tranzakcio.tipus)
+        ).all()
+
+    osszegek = dict(sorok)             # pl. {"Bevétel": 6000.0, "Kiadás": 6000.0}
+    # .get(kulcs, 0): ha egy típusból még nincs tranzakció, 0-t ad KeyError helyett
+    return osszegek.get("Bevétel", 0), osszegek.get("Kiadás", 0)
+
+
+def kategoriankenti_egyenleg():
+    """Kategóriánként összesíti az összegeket (a kiadás negatív előjellel számít); (nev, osszeg) párok listáját adja."""
+    # CASE WHEN tipus = 'Kiadás' THEN -osszeg ELSE osszeg END
+    elojeles_osszeg = case(
+        (Tranzakcio.tipus == "Kiadás", -Tranzakcio.osszeg),
+        else_=Tranzakcio.osszeg,
+    )
+
+    with Session(engine) as session:
+        return session.execute(
+            select(Kategoria.nev, func.sum(elojeles_osszeg))
+            .select_from(Tranzakcio)          # FROM tranzakciok
+            .join(Tranzakcio.kategoria)       # JOIN kategoriak ON ... (a kapcsolatból tudja)
+            .group_by(Kategoria.nev)
+        ).all()

@@ -134,44 +134,17 @@ def frissites():
   
 
 def egyenleg():
-    """Kiszámolja a bevételek és kiadások különbségét, és frissíti a bevétel/kiadás/egyenleg feliratokat."""
-    with db_kapcsolat() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT osszeg, tipus
-            FROM tranzakciok
-            """)
-        adatok = cursor.fetchall()
+    """Lekéri az összesített bevételt és kiadást, és frissíti a feliratokat."""
+    bevetel, kiadas = adatreteg.bevetel_kiadas_osszesen()
 
-    bevetel = 0
-    kiadas = 0
-
-    for osszeg, tipus in adatok:
-
-        if tipus == "Bevétel":
-            bevetel += osszeg
-        else:
-            kiadas += osszeg
-    
     bevetel_label.config(text=f"Bevétel: {bevetel} Ft")
     kiadas_label.config(text=f"Kiadás: {kiadas} Ft")
     egyenleg_label.config(text=f"Egyenleg: {bevetel - kiadas} Ft")
 
 
 def kategoriak_osszesitese():
-    """Kategóriánként összesíti a tranzakciók összegét, és konzolra kiírja az eredményt.
-    Nem hoz létre semmit tartósan, csak a függvény futása alatt épül fel egy ideiglenes szótár."""
-    with db_kapcsolat() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT k.nev, SUM(CASE WHEN t.tipus = 'Kiadás' THEN -t.osszeg ELSE t.osszeg END)
-            FROM tranzakciok t
-            JOIN  kategoriak k ON t.kategoria_id = k.id
-            GROUP BY k.nev
-            """)
-        adatok = cursor.fetchall()
-
-    for kategoria_nev, osszeg in adatok:
+    """Kiírja a konzolra a kategóriánkénti egyenleget."""
+    for kategoria_nev, osszeg in adatreteg.kategoriankenti_egyenleg():
         print(f"{kategoria_nev}: {osszeg:.0f} Ft")
 
 
