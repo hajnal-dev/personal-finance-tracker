@@ -69,22 +69,26 @@ def mentes():
 
 
 def torles():
-    """Törli a Listboxban kijelölt tranzakciót az adatbázisból."""
-    kijelolt = tranzakcio_lista.curselection() 
+    """Az adatréteggel törölteti a Listboxban kijelölt tranzakciót."""
+    global kijelolt_tranzakcio
 
-    if kijelolt:
-        index = kijelolt[0] 
-        tranzakcio = listbox_objektum_terkep[index]
+    kijelolt = tranzakcio_lista.curselection()
+    if not kijelolt:                    # nincs kijelölés → nincs mit törölni
+        return
 
-        with db_kapcsolat() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-            DELETE FROM tranzakciok
-            WHERE rekord_id = ?
-            """, (tranzakcio.rekord_id,))
+    tranzakcio = listbox_objektum_terkep[kijelolt[0]]
 
-        listazas()
-        egyenleg()
+    try:
+        adatreteg.tranzakcio_torles(tranzakcio.rekord_id)
+    except ValueError as hiba:
+        print(hiba)
+        return
+
+    # ha épp a betöltött (szerkesztés alatt álló) tranzakciót töröltük, „felejtsük el”
+    if kijelolt_tranzakcio is not None and kijelolt_tranzakcio.rekord_id == tranzakcio.rekord_id:
+        kijelolt_tranzakcio = None
+
+    listazas()
 
         
 def betoltes():
@@ -105,12 +109,9 @@ def betoltes():
         kategoria_entry.insert(0, tranzakcio.kategoria.nev)
         tipus_combo.set(tranzakcio.tipus)
 
-        listazas()
-        egyenleg()
-
 
 def frissites():
-    """A beviteli mezők adataival felülírja a korábban betöltött tranzakciót (SQLAlchemy-vel)."""
+    """Beolvassa a mezőket, és az adatréteggel módosíttatja a betöltött tranzakciót."""
     if kijelolt_tranzakcio is None:
         return
 
@@ -123,25 +124,13 @@ def frissites():
     uj_kategoria_nev = kategoria_entry.get().strip() or "Egyéb"
     uj_tipus = tipus_combo.get()
 
-    with Session(engine) as session:
-        # 1. a módosítandó tranzakció betöltése EBBE a sessionbe, az elsődleges kulcsa alapján
-        tranzakcio = session.get(Tranzakcio, kijelolt_tranzakcio.rekord_id)
-
-        # 2. módosítás — az osszeg értékadásánál fut a @validates
-        try:
-            tranzakcio.osszeg = uj_osszeg
-        except ValueError as hiba:
-            print(hiba)
-            return                      # commit nélkül kilépünk → semmi nem változik
-
-        tranzakcio.tipus = uj_tipus
-        tranzakcio.kategoria = adatreteg.kategoria_keres_vagy_letrehoz(session, uj_kategoria_nev)
-
-        # 3. végleges mentés — add() nem kell, a session már követi az objektumot
-        session.commit()
+    try:
+        adatreteg.tranzakcio_frissites(kijelolt_tranzakcio.rekord_id, uj_osszeg, uj_tipus, uj_kategoria_nev)
+    except ValueError as hiba:
+        print(hiba)
+        return
 
     listazas()
-    egyenleg()
   
 
 def egyenleg():

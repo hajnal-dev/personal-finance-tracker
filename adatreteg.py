@@ -32,3 +32,27 @@ def uj_tranzakcio(datum, osszeg, tipus, kategoria_nev):
         uj = Tranzakcio(datum=datum, osszeg=osszeg, tipus=tipus, kategoria=kategoria)
         session.add(uj)
         session.commit()
+
+
+def tranzakcio_frissites(rekord_id, osszeg, tipus, kategoria_nev):
+    """Módosít egy meglévő tranzakciót. Ha nem létezik, vagy az adat érvénytelen, ValueError-t dob."""
+    with Session(engine) as session:
+        tranzakcio = session.get(Tranzakcio, rekord_id)
+        if tranzakcio is None:
+            raise ValueError("A tranzakció nem található (lehet, hogy közben törölték).")
+
+        tranzakcio.osszeg = osszeg        # itt fut a @validates; hiba esetén a ValueError kirepül, commit nélkül
+        tranzakcio.tipus = tipus
+        tranzakcio.kategoria = kategoria_keres_vagy_letrehoz(session, kategoria_nev)
+        session.commit()
+
+
+def tranzakcio_torles(rekord_id):
+    """Törli a megadott azonosítójú tranzakciót. Ha nem létezik, ValueError-t dob."""
+    with Session(engine) as session:
+        tranzakcio = session.get(Tranzakcio, rekord_id)
+        if tranzakcio is None:
+            raise ValueError("A tranzakció nem található (lehet, hogy közben törölték).")
+
+        session.delete(tranzakcio)         # megjelölés törlésre (még nem végleges)
+        session.commit()                   # végleges törlés
