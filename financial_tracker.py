@@ -6,7 +6,7 @@ from datetime import datetime
 from contextlib import contextmanager
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-from modellek import engine, Tranzakcio
+from modellek import engine, Tranzakcio, Kategoria
 
 # - - - 1. Adatbázis inicializálása induláskor - - -
 #azért jobb ilyenkor mert egyszer jön létre az indításkor
@@ -29,32 +29,35 @@ def db_kapcsolat():
 kijelolt_tranzakcio = None
 
 def mentes():
-    """Ellenőrzi és elmenti az új tranzakciót az adatbázisba, majd frissíti a listát és az egyenleget."""
+    """Ellenőrzi és elmenti az új tranzakciót az adatbázisba (SQLAlchemy-vel), majd frissíti a listát és az egyenleget."""
     try:
         osszeg = float(osszeg_entry.get())
     except ValueError:
         print("Csak számot adj meg!")
         return
-    
-    kategoria = kategoria_entry.get().strip() or "Egyéb"
+
+    kategoria_nev = kategoria_entry.get().strip() or "Egyéb"
     tipus = tipus_combo.get()
     datum = datetime.now().strftime("%Y-%m-%d")
 
-    with db_kapcsolat() as conn:
-        cursor = conn.cursor()
-        kategoria_id = kategoria_id_lekeres(conn, kategoria)
+    with Session(engine) as session:
+        kategoria = kategoria_keres_vagy_letrehoz(session, kategoria_nev)
+
         try:
-            uj_tranzakcio = Tranzakcio(None, datum, osszeg, kategoria, tipus, kategoria_id) #validáció a property-n keresztül
+            # név szerinti paraméterek; a @validates itt, létrehozáskor ellenőrzi az összeget
+            uj_tranzakcio = Tranzakcio(
+                datum=datum,
+                osszeg=osszeg,
+                tipus=tipus,
+                kategoria=kategoria,      # OBJEKTUM, nem id — az SQLAlchemy kitölti a kategoria_id-t
+            )
         except ValueError as hiba:
             print(hiba)
-            return
-        cursor.execute("""
-        INSERT INTO tranzakciok
-        (datum, osszeg, tipus, kategoria_id)
-        VALUES (?, ?, ?, ?)
-        """, (datum, osszeg, tipus, kategoria_id))
+            return                  # commit nélkül lépünk ki → semmi nem mentődik, az új kategória sem
 
-    
+        session.add(uj_tranzakcio)  # felvétel a nyilvántartásba
+        session.commit()               # végleges mentés
+
     print("Sikeres mentés!")
     osszeg_entry.delete(0, tk.END)
     kategoria_entry.delete(0, tk.END)
@@ -62,20 +65,21 @@ def mentes():
     listazas()
     egyenleg()
 
-listbox_objektum_terkep = {} 
+listbox_objektum_terkep = {}
 
 
-def kategoria_id_lekeres(conn, nev):
-    """Visszaadja a megadott nevű kategória id-ját; ha még nem létezik, létrehozza."""
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM kategoriak WHERE nev = ?", (nev,))
-    talalat = cursor.fetchone()
+def kategoria_keres_vagy_letrehoz(session, nev):
+    """Visszaadja a megadott nevű Kategoria objektumot; ha még nem létezik, létrehozza (commit nélkül)."""
+    # SELECT ... FROM kategoriak WHERE nev = ? — csak most osztállyal és attribútummal
+    kategoria = session.scalars(
+        select(Kategoria).where(Kategoria.nev == nev)
+    ).first()                       # első találat, vagy None, ha nincs ilyen
 
-    if talalat:
-        return talalat[0]
-    else:
-        cursor.execute("INSERT INTO kategoriak(nev) VALUES (?)", (nev,))
-        return cursor.lastrowid
+    if kategoria is None:
+        kategoria = Kategoria(nev=nev)    # név szerinti paraméter!
+        session.add(kategoria)            # felvétel a session nyilvántartásába (még nem mentés)
+
+    return kategoria
 
 
 def listazas():
@@ -140,45 +144,39 @@ def betoltes():
 
 
 def frissites():
-    """A beviteli mezőkben lévő (esetleg módosított) adatokkal felülírja a korábban kiválasztott tranzakciót az adatbázisban."""
-    global kijelolt_tranzakcio
-
+    """A beviteli mezők adataival felülírja a korábban betöltött tranzakciót (SQLAlchemy-vel)."""
     if kijelolt_tranzakcio is None:
         return
 
-    uj_kategoria = kategoria_entry.get()
+    try:
+        uj_osszeg = float(osszeg_entry.get())
+    except ValueError:
+        print("Csak számot adj meg!")
+        return
+
+    uj_kategoria_nev = kategoria_entry.get().strip() or "Egyéb"
     uj_tipus = tipus_combo.get()
 
+    with Session(engine) as session:
+        # 1. a módosítandó tranzakció betöltése EBBE a sessionbe, az elsődleges kulcsa alapján
+        tranzakcio = session.get(Tranzakcio, kijelolt_tranzakcio.rekord_id)
 
-    with db_kapcsolat() as conn:
-        cursor = conn.cursor()
-        kategoria_id = kategoria_id_lekeres(conn, uj_kategoria)
+        # 2. módosítás — az osszeg értékadásánál fut a @validates
         try:
-            uj_osszeg = float(osszeg_entry.get())
-            uj_tranzakcio = Tranzakcio(kijelolt_tranzakcio.rekord_id, kijelolt_tranzakcio.datum, uj_osszeg, uj_kategoria, uj_tipus, kategoria_id)
-            #validáció a property-n keresztül
+            tranzakcio.osszeg = uj_osszeg
         except ValueError as hiba:
             print(hiba)
-            return
-        cursor.execute("""
-        UPDATE tranzakciok
-        SET osszeg = ?,
-            tipus = ?,
-            kategoria_id = ?
-            WHERE rekord_id = ?
-        """,
-        (
-            uj_osszeg,
-            uj_tipus,
-            kategoria_id,
-            kijelolt_tranzakcio.rekord_id
-            )
-        )
+            return                      # commit nélkül kilépünk → semmi nem változik
 
+        tranzakcio.tipus = uj_tipus
+        tranzakcio.kategoria = kategoria_keres_vagy_letrehoz(session, uj_kategoria_nev)
+
+        # 3. végleges mentés — add() nem kell, a session már követi az objektumot
+        session.commit()
 
     listazas()
     egyenleg()
-
+  
 
 def egyenleg():
     """Kiszámolja a bevételek és kiadások különbségét, és frissíti a bevétel/kiadás/egyenleg feliratokat."""
