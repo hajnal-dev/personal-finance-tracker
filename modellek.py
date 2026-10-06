@@ -41,12 +41,9 @@ class Tranzakcio(Base):
     # kapcsolat a másik irányba: EGY tranzakció → EGY kategória (ezért nem lista)
     kategoria: Mapped["Kategoria"] = relationship(back_populates="tranzakciok")
 
-    # a régi @property helyett — lásd lent, miért
     @validates("osszeg")
     def osszeg_ellenorzes(self, kulcs, ertek):
         # kulcs = a validált attribútum neve ("osszeg"), ertek = a beállítani kívánt érték
-        # 1) ha negatív: ugyanazt a ValueError-t dobd, mint eddig
-        # 2) ha rendben van: ___ (mit kell visszaadnia a függvénynek, hogy az érték beálljon?)
         if ertek < 0:
             raise ValueError("Negatív összeg nem adható meg!")
         return ertek
@@ -61,7 +58,6 @@ class Tranzakcio(Base):
 
 
 # - - - Engine - - -
-# modul szinten: importáláskor IS létrejön, így a financial_tracker.py el tudja érni
 engine = create_engine("sqlite:///penzugy.db", echo=True)
 
 # minden új adatbázis-kapcsolat megnyitásakor lefut: SQLite-ban a PRAGMA kapcsolatonként érvényes,
